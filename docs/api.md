@@ -26,7 +26,8 @@ recording.analyze()
 print(recording.detections)
 ```
 
-All recording classes can accept an optional lat, lon and date arguments, which will limit the detections to species to those predicted to be included.
+All recording classes can accept optional `lat`, `lon`, and `date` arguments, which filter detections to species predicted to be present at that location and time. This filtering is equivalent to using the `--lat`, `--lon`, and `--week` arguments in BirdNET-Analyzer’s `analyzer.py` script.
+
 
 ```python
 from birdnetlib import Recording
@@ -46,7 +47,7 @@ recording.analyze()
 print(recording.detections)
 ```
 
-It is also possible to return all detections, but annotate the detection if the species is on the predicted list for that location and date.
+It is also possible annotate the detection if the species is on the predicted list for that location and date. Using `is_predicted_for_location_and_date` will annotate rather than filter.
 
 ```python
 from birdnetlib import Recording
@@ -61,10 +62,30 @@ recording = Recording(
     lat=35.6,
     lon=-77.3,
     date=datetime(year=2023, month=6, day=27),
-    is_predicted_for_location_and_date=True,
+    return_all_detections=True,
 )
 recording.analyze()
 print(recording.detections)
+
+```
+
+When using `return_all_detections=True`, `recording.detections` contains a list of detected species, along with time ranges and confidence value and an `is_predicted_for_location_and_date` boolean. For example, a Spotted Crake would not be predicted for the eastern United States in June.
+
+```python
+[{'common_name': 'Spotted Crake',
+  'confidence': 0.7721,
+  'end_time': 12.0,
+  'scientific_name': 'Porzana porzana',
+  'start_time': 9.0,
+  'is_predicted_for_location_and_date': False,
+  'label': 'Haemorhous mexicanus_House Finch'},
+ {'common_name': 'House Finch',
+  'confidence': 0.4496,
+  'end_time': 15.0,
+  'scientific_name': 'Haemorhous mexicanus',
+  'start_time': 12.0,
+  'is_predicted_for_location_and_date': True,
+  'label': 'Haemorhous mexicanus_House Finch'}]
 ```
 
 #### Embeddings
