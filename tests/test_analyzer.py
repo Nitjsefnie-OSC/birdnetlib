@@ -340,3 +340,86 @@ def test_species_list_calls():
         )
         recording.analyze()
         assert wrapped_return_predicted_species_list.call_count == 1
+
+
+def test_sensitivity_stored_correctly():
+    # Verify the sensitivity transformation matches BirdNET-Analyzer's formula.
+    # analyze.py line 490: cfg.SIGMOID_SENSITIVITY = max(0.5, min(1.0 - (sensitivity - 1.0), 1.5))
+    analyzer = Analyzer()
+    input_path = os.path.join(os.path.dirname(__file__), "test_files/soundscape.wav")
+
+    assert Recording(analyzer, input_path, sensitivity=1.0).sensitivity == 1.0
+    assert Recording(analyzer, input_path, sensitivity=1.5).sensitivity == 0.5
+    assert Recording(analyzer, input_path, sensitivity=0.5).sensitivity == 1.5
+
+
+def test_sensitivity_affects_detections():
+    # Higher sensitivity values should produce more detections (Issue #132).
+    input_path = os.path.join(os.path.dirname(__file__), "test_files/soundscape.wav")
+    analyzer = Analyzer()
+
+    recording_low = Recording(analyzer, input_path, min_conf=0.1, sensitivity=0.75)
+    recording_low.analyze()
+
+    recording_default = Recording(analyzer, input_path, min_conf=0.1, sensitivity=1.0)
+    recording_default.analyze()
+
+    recording_high = Recording(analyzer, input_path, min_conf=0.1, sensitivity=1.5)
+    recording_high.analyze()
+
+    assert len(recording_high.detections) > len(recording_default.detections)
+    assert len(recording_default.detections) > len(recording_low.detections)
+
+
+def test_filter_threshold_affects_species_list():
+    # A lower filter_threshold should include more species in the location-based list (Issue #132).
+    input_path = os.path.join(os.path.dirname(__file__), "test_files/soundscape.wav")
+    lon, lat, week_48 = -120.7463, 35.4244, 18
+    analyzer = Analyzer()
+
+    recording_low = Recording(
+        analyzer, input_path, lat=lat, lon=lon, week_48=week_48, filter_threshold=0.01
+    )
+    recording_low.analyze()
+    count_low = len(analyzer.custom_species_list)
+
+    recording_high = Recording(
+        analyzer, input_path, lat=lat, lon=lon, week_48=week_48, filter_threshold=0.5
+    )
+    recording_high.analyze()
+    count_high = len(analyzer.custom_species_list)
+
+    assert count_low > count_high
+
+
+def test_filter_threshold_cache_keyed_separately():
+    # Different filter_threshold values for the same location/week must produce separate cache entries (Issue #132).
+    input_path = os.path.join(os.path.dirname(__file__), "test_files/soundscape.wav")
+    lon, lat, week_48 = -120.7463, 35.4244, 18
+    analyzer = Analyzer()
+
+    with patch.object(
+        analyzer,
+        "return_predicted_species_list",
+        wraps=analyzer.return_predicted_species_list,
+    ) as wrapped:
+        r1 = Recording(
+            analyzer, input_path, lat=lat, lon=lon, week_48=week_48, filter_threshold=0.01
+        )
+        r1.analyze()
+
+        r2 = Recording(
+            analyzer, input_path, lat=lat, lon=lon, week_48=week_48, filter_threshold=0.5
+        )
+        r2.analyze()
+
+        # Each distinct threshold should trigger a separate species list generation.
+        assert wrapped.call_count == 2
+        assert len(analyzer.cached_species_lists) == 2
+
+        # A third recording reusing an existing threshold should hit the cache.
+        r3 = Recording(
+            analyzer, input_path, lat=lat, lon=lon, week_48=week_48, filter_threshold=0.01
+        )
+        r3.analyze()
+        assert wrapped.call_count == 2

@@ -13,7 +13,7 @@ from birdnetlib.utils import return_week_48_from_datetime
 from pathlib import Path
 import matplotlib.pyplot as plt
 from collections import namedtuple
-from birdnetlib.analyzer import LargeRecordingAnalyzer
+from birdnetlib.analyzer import LargeRecordingAnalyzer, LOCATION_FILTER_THRESHOLD
 
 SAMPLE_RATE = 48000
 
@@ -30,6 +30,7 @@ class RecordingBase:
         min_conf=0.1,
         overlap=0.0,
         return_all_detections=False,
+        filter_threshold=LOCATION_FILTER_THRESHOLD,
     ):
         self.analyzer = analyzer
         self.detections_dict = {}  # Old format
@@ -44,6 +45,7 @@ class RecordingBase:
         self.lon = lon
         self.overlap = overlap
         self.minimum_confidence = max(0.01, min(min_conf, 0.99))
+        self.filter_threshold = filter_threshold
         self.sample_secs = 3.0
         self.duration = None
         self.ndarray = None
@@ -142,6 +144,7 @@ class RecordingBase:
             "lon": self.lon,
             "minimum_confidence": self.minimum_confidence,
             "duration": self.duration,
+            "filter_threshold": self.filter_threshold,
         }
         return {"path": self.path, "config": config, "detections": self.detections}
 
@@ -278,6 +281,7 @@ class Recording(RecordingBase):
         min_conf=0.1,
         overlap=0.0,
         return_all_detections=False,
+        filter_threshold=LOCATION_FILTER_THRESHOLD,
     ):
         self.path = path
         p = Path(self.path)
@@ -292,6 +296,7 @@ class Recording(RecordingBase):
             min_conf,
             overlap,
             return_all_detections,
+            filter_threshold,
         )
 
     @property
@@ -333,6 +338,7 @@ class RecordingBuffer(RecordingBase):
         min_conf=0.1,
         overlap=0.0,
         return_all_detections=False,
+        filter_threshold=LOCATION_FILTER_THRESHOLD,
     ):
         self.buffer = buffer
         self.rate = rate
@@ -346,6 +352,7 @@ class RecordingBuffer(RecordingBase):
             min_conf,
             overlap,
             return_all_detections,
+            filter_threshold,
         )
 
     @property
@@ -371,6 +378,7 @@ class RecordingFileObject(RecordingBase):
         min_conf=0.1,
         overlap=0.0,
         return_all_detections=False,
+        filter_threshold=LOCATION_FILTER_THRESHOLD,
     ):
         self.file_obj = file_obj
         super().__init__(
@@ -383,6 +391,7 @@ class RecordingFileObject(RecordingBase):
             min_conf,
             overlap,
             return_all_detections,
+            filter_threshold,
         )
 
     @property
@@ -423,6 +432,7 @@ class LargeRecording(Recording):
         min_conf=0.1,
         overlap=0,
         return_all_detections=False,
+        filter_threshold=LOCATION_FILTER_THRESHOLD,
     ):
         super().__init__(
             analyzer,
@@ -435,6 +445,7 @@ class LargeRecording(Recording):
             min_conf,
             overlap,
             return_all_detections,
+            filter_threshold,
         )
 
     def analyze(self):
@@ -513,6 +524,7 @@ class MultiProcessRecording(RecordingBase):
         lon = results.get("config", {}).get("lon", None)
         min_conf = results.get("config", {}).get("minimum_confidence", 0.1)
         overlap = results.get("config", {}).get("overlap", 0.1)
+        filter_threshold = results.get("config", {}).get("filter_threshold", LOCATION_FILTER_THRESHOLD)
 
         Analyzer = namedtuple("Analyzer", ["model_name", "custom_species_list"])
 
@@ -522,7 +534,8 @@ class MultiProcessRecording(RecordingBase):
         )
 
         super().__init__(
-            analyzer, week_48, date, sensitivity, lat, lon, min_conf, overlap
+            analyzer, week_48, date, sensitivity, lat, lon, min_conf, overlap,
+            filter_threshold=filter_threshold,
         )
 
         # After super init.

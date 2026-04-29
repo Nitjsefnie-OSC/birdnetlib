@@ -258,7 +258,7 @@ class Analyzer:
 
         return detections
 
-    def predict(self, sample):
+    def predict(self, sample, sensitivity=1.0):
         # Prepare sample and pass through model
         data = np.array([sample], dtype="float32")
 
@@ -277,9 +277,8 @@ class Analyzer:
         # Logits or sigmoid activations?
         APPLY_SIGMOID = True
         if APPLY_SIGMOID:
-            SIGMOID_SENSITIVITY = 1.0
             prediction = self.flat_sigmoid(
-                np.array(prediction), sensitivity=-SIGMOID_SENSITIVITY
+                np.array(prediction), sensitivity=-sensitivity
             )
 
         return prediction
@@ -304,7 +303,7 @@ class Analyzer:
         print("set_predicted_species_list_from_position")
 
         # Check to see if this species list has been previously cached.
-        list_key = f"list-{recording.lon}-{recording.lat}-{recording.week_48}"
+        list_key = f"list-{recording.lon}-{recording.lat}-{recording.week_48}-{recording.filter_threshold}"
 
         if list_key in self.cached_species_lists:
             self.custom_species_list = self.cached_species_lists[list_key]
@@ -314,6 +313,7 @@ class Analyzer:
             lon=recording.lon,
             lat=recording.lat,
             week_48=recording.week_48,
+            filter_threshold=recording.filter_threshold,
         )
         self.custom_species_list = species_list
 
@@ -338,9 +338,9 @@ class Analyzer:
         results = {}
         for c in recording.chunks:
             if self.use_custom_classifier:
-                pred = self.predict_with_custom_classifier(c)[0]
+                pred = self.predict_with_custom_classifier(c, sensitivity=recording.sensitivity)[0]
             else:
-                pred = self.predict(c)[0]
+                pred = self.predict(c, sensitivity=recording.sensitivity)[0]
 
             # Assign scores to labels
             p_labels = dict(zip(self.labels, pred))
@@ -446,7 +446,7 @@ class Analyzer:
         features = self.interpreter.get_tensor(output_layer_index)
         return features
 
-    def predict_with_custom_classifier(self, sample):
+    def predict_with_custom_classifier(self, sample, sensitivity=1.0):
         data = np.array([sample], dtype="float32")
         input_details = self.custom_interpreter.get_input_details()
         input_size = input_details[0]["shape"][-1]
@@ -467,9 +467,8 @@ class Analyzer:
         # Logits or sigmoid activations?
         APPLY_SIGMOID = True
         if APPLY_SIGMOID:
-            SIGMOID_SENSITIVITY = 1.0
             prediction = self.flat_sigmoid(
-                np.array(prediction), sensitivity=-SIGMOID_SENSITIVITY
+                np.array(prediction), sensitivity=-sensitivity
             )
         return prediction
 
@@ -540,9 +539,9 @@ class LargeRecordingAnalyzer(Analyzer):
             start = segment["start_sec"]
             end = segment["end_sec"]
             if self.use_custom_classifier:
-                pred = self.predict_with_custom_classifier(c)[0]
+                pred = self.predict_with_custom_classifier(c, sensitivity=recording.sensitivity)[0]
             else:
-                pred = self.predict(c)[0]
+                pred = self.predict(c, sensitivity=recording.sensitivity)[0]
 
             # Assign scores to labels
             p_labels = dict(zip(self.labels, pred))
