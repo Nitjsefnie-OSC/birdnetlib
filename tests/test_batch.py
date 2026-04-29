@@ -1,5 +1,5 @@
 from birdnetlib.batch import DirectoryAnalyzer
-from birdnetlib.analyzer_lite import LiteAnalyzer
+from birdnetlib.analyzer import Analyzer
 import tempfile
 import shutil
 import os
@@ -17,7 +17,7 @@ def copytree(src, dst, symlinks=False, ignore=None):
 
 
 def test_batch():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     test_files = "tests/test_files"
 
     with tempfile.TemporaryDirectory() as input_dir:
@@ -34,7 +34,7 @@ def test_batch():
 
 
 def test_batch_extensions():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     test_files = "tests/test_files"
 
     with tempfile.TemporaryDirectory() as input_dir:

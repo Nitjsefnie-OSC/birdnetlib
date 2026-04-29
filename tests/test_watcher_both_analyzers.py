@@ -3,9 +3,13 @@ from birdnetlib.analyzer_lite import LiteAnalyzer
 from birdnetlib.analyzer import Analyzer
 import os
 from collections import namedtuple
+import pytest
 from mock import patch, Mock
 
+_skip_lite = pytest.mark.skip(reason="BirdNET-Lite model requires TFLite Flex delegate (FlexRFFT); model is deprecated")
 
+
+@_skip_lite
 def test_watcher_complete():
     analyzer = Analyzer()
     analyzer_lite = LiteAnalyzer()
@@ -40,7 +44,7 @@ def test_watcher_complete():
 
 
 def test_watcher_error():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     directory = "."
     watcher = DirectoryWatcher(directory, analyzers=[analyzer])
 
