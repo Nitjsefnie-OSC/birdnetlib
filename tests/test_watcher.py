@@ -1,15 +1,20 @@
 from birdnetlib.watcher import DirectoryWatcher
+from birdnetlib.analyzer import Analyzer
 from birdnetlib.analyzer_lite import LiteAnalyzer
 import os
 from collections import namedtuple
 from mock import patch, Mock
+import pytest
 from datetime import datetime
+
+_skip_lite = pytest.mark.skip(reason="BirdNET-Lite model requires TFLite Flex delegate (FlexRFFT); model is deprecated")
 
 
 def on_analyze_complete(recording):
     print(recording.detections)
 
 
+@_skip_lite
 def test_watcher_complete():
     analyzer = LiteAnalyzer()
     directory = "."
@@ -44,6 +49,7 @@ def preparser(recording):
     recording.lat = 35
 
 
+@_skip_lite
 def test_watcher_date_preparser_parser():
     # Test the ability for the parser to preparse for lon/lat/date.
     analyzer = LiteAnalyzer()
@@ -79,7 +85,7 @@ def test_watcher_date_preparser_parser():
 
 
 def test_watcher_error():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     directory = "."
     watcher = DirectoryWatcher(directory, analyzers=[analyzer])
 

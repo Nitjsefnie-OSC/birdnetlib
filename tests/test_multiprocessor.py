@@ -1,5 +1,5 @@
 from birdnetlib.batch import DirectoryMultiProcessingAnalyzer
-from birdnetlib.analyzer_lite import LiteAnalyzer
+from birdnetlib.analyzer import Analyzer
 from birdnetlib import MultiProcessRecording
 import tempfile
 import shutil
@@ -22,7 +22,7 @@ def copytree(src, dst, symlinks=False, ignore=None):
 
 @pytest.mark.omit_during_ghactions
 def test_batch():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     test_files = "tests/test_files"
 
     start = time.time()
@@ -188,7 +188,7 @@ def test_batch_with_kwargs():
 
 @pytest.mark.omit_during_ghactions
 def test_process_defined_batch():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     test_files = "tests/test_files"
     processes = 1
 
@@ -210,7 +210,7 @@ def test_process_defined_batch():
 
 @pytest.mark.omit_during_ghactions
 def test_batch_error():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     test_files = "tests/test_files"
     processes = 1
 
@@ -238,7 +238,7 @@ def test_batch_error():
 
 @pytest.mark.omit_during_ghactions
 def test_batch_extensions():
-    analyzer = LiteAnalyzer()
+    analyzer = Analyzer()
     test_files = "tests/test_files"
 
     with tempfile.TemporaryDirectory() as input_dir:

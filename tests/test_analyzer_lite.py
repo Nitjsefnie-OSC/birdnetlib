@@ -8,6 +8,8 @@ import tempfile
 import csv
 from unittest import TestCase
 
+pytestmark = pytest.mark.skip(reason="BirdNET-Lite model requires TFLite Flex delegate (FlexRFFT); model is deprecated")
+
 
 def test_basic():
 
