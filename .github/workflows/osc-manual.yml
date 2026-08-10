@@ -1,0 +1,42 @@
+name: osc-manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: "${{ inputs.target_ref }}"
+          submodules: "recursive"
+      - name: submodules recursively
+        run: git submodule foreach git pull origin main --depth 9999
+      - name: Setup FFmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v2
+      - name: Install libsndfile
+        run: sudo apt-get install -y libsndfile1
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install tensorflow librosa soundfile pytest mock resampy
+          pip install .
+          # if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Test with pytest
+        run: |
+          git -C tests/BirdNET-Analyzer checkout 98945574c68102ccfac6c3504fcc63e64ed6f9e3
+          pytest -m "not omit_during_ghactions" --maxfail=1
