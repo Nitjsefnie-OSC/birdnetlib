@@ -4,11 +4,11 @@
 #   resolve <target_ref>  exact branch, exact tag, or literal 40-hex SHA that
 #                         no branch or tag shadows. Prints one 40-hex line.
 #   verify <sha>          pre-setup gate: HEAD == sha, superproject clean with
-#                         --ignore-submodules=none, recursive gitlink identity
-#                         and recursive submodule-internal cleanliness.
+#                         ignored state visible, recursive gitlink identity and
+#                         recursive submodule-internal cleanliness.
 #   post                  post-setup gate: no non-submodule superproject dirt,
-#                         every submodule internally clean; prints recursive
-#                         PROVENANCE submodule lines for the state under test.
+#                         ignored state visible, every submodule internally
+#                         clean; prints recursive PROVENANCE submodule lines.
 set -euo pipefail
 
 fail() { printf 'osc-target-ref: %s\n' "$*" >&2; exit 1; }
@@ -62,12 +62,15 @@ if [ "$cmd" = "resolve" ]; then
 fi
 
 each_sub() { # $1=repo dir $2=callback(records sha, path, abs dir); recursive
-  local repo="$1" mode type sha path
-  while read -r mode type sha path; do
+  local repo="$1" callback="$2" entry metadata mode type sha path
+  while IFS= read -r -d '' entry; do
+    metadata="${entry%%$'\t'*}"
+    path="${entry#*$'\t'}"
+    read -r mode type sha <<< "$metadata"
     [ "$mode" = "160000" ] || continue
-    "$2" "$sha" "$path" "$repo/$path"
-    each_sub "$repo/$path" "$2"
-  done < <(git -C "$repo" ls-tree -r HEAD)
+    "$callback" "$sha" "$path" "$repo/$path"
+    each_sub "$repo/$path" "$callback"
+  done < <(git -C "$repo" ls-tree -r -z HEAD)
 }
 
 sub_head() { sub_actual=$(git -C "$3" rev-parse HEAD 2>/dev/null) \
@@ -76,8 +79,18 @@ sub_head() { sub_actual=$(git -C "$3" rev-parse HEAD 2>/dev/null) \
 check_gitlink() { sub_head "$@"; [ "$sub_actual" = "$1" ] \
   || fail "submodule drift: $2 recorded=$1 actual=$sub_actual"; }
 
-check_clean() { sub_head "$@"; [ -z "$(git -C "$3" status --porcelain --ignore-submodules=none)" ] \
-  || fail "dirty submodule: $2"; }
+clean_status() {
+  local repo="$1" ignore_submodules="$2" label="$3" status
+  status=$(git -C "$repo" status --porcelain=v1 --ignored=matching \
+    --untracked-files=all --ignore-submodules="$ignore_submodules") \
+    || fail "unable to inspect $label"
+  [ -z "$status" ] || fail "dirty $label"
+}
+
+check_clean() {
+  sub_head "$@"
+  clean_status "$3" none "submodule: $2"
+}
 
 print_prov() { sub_head "$@"; printf 'PROVENANCE submodule %s %s\n' "${3#./}" "$sub_actual"; }
 
@@ -88,15 +101,13 @@ case "$cmd" in
     actual=$(git rev-parse HEAD) || fail "not inside a git work tree"
     [ "$actual" = "$expected" ] \
       || fail "checkout drift: HEAD=$actual expected=$expected"
-    [ -z "$(git status --porcelain --ignore-submodules=none)" ] \
-      || fail "dirty tree after checkout"
+    clean_status . none "tree after checkout"
     each_sub . check_gitlink
     each_sub . check_clean
     printf 'verified %s\n' "$actual"
     ;;
   post)
-    [ -z "$(git status --porcelain --ignore-submodules=all)" ] \
-      || fail "non-submodule dirt after setup"
+    clean_status . all "non-submodule tree after setup"
     each_sub . check_clean
     each_sub . print_prov
     ;;
