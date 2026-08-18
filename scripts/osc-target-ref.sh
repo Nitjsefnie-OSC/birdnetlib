@@ -34,7 +34,9 @@ if [ "$cmd" = "resolve" ]; then
     -*) fail "option-like target_ref rejected: $ref" ;;
   esac
   if is_sha "$ref"; then
-    [ -z "$(named_matches "$ref")" ] \
+    matches=$(named_matches "$ref") \
+      || fail "unable to inspect named refs on origin: $ref"
+    [ -z "$matches" ] \
       || fail "40-hex input shadowed by a named branch or tag: $ref"
     git fetch -q --depth 1 origin "$ref" 2>/dev/null \
       || fail "SHA not fetchable from origin: $ref"
@@ -48,7 +50,8 @@ if [ "$cmd" = "resolve" ]; then
     refs/*|*@\{*|*\^*|*~*|*:*|*..*) fail "DWIM/malformed ref rejected: $ref" ;;
   esac
   git check-ref-format "refs/heads/$ref" || fail "malformed ref name: $ref"
-  matches=$(named_matches "$ref")
+  matches=$(named_matches "$ref") \
+    || fail "unable to inspect named refs on origin: $ref"
   count=$(printf '%s\n' "$matches" | grep -c . || true)
   [ "$count" -gt 0 ] || fail "no such branch or tag on origin: $ref"
   [ "$count" -eq 1 ] || fail "ambiguous ref (branch and tag both exist): $ref"
