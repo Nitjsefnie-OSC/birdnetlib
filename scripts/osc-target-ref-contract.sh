@@ -109,7 +109,11 @@ SUP=$(git -C "$TMP/super" rev-parse HEAD)
 A3=$(git -C "$TMP/subA" rev-parse HEAD)
 git clone -q "$TMP/super" "$TMP/vs"
 ( cd "$TMP/vs" && git -c protocol.file.allow=always submodule update -q --init --recursive )
-ver() { (cd "$TMP/vs" && bash "$SCRIPT" "$@" 2>"$TMP/err"); }
+baseline_inventory="$TMP/baseline.inventory"
+ver() {
+  ( cd "$TMP/vs" && GIT_CEILING_DIRECTORIES="$TMP/vs/libs/A/libs" \
+    OSC_BASELINE_INVENTORY="$baseline_inventory" bash "$SCRIPT" "$@" 2>"$TMP/err" )
+}
 
 out=$(ver verify "$SUP"); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "verified $SUP" ]
@@ -189,75 +193,32 @@ has_nul_record() {
   return 1
 }
 
-newrepo "$TMP/late-child"
-( cd "$TMP/late-child" && echo c1 > c && git add c && git commit -qm c1 )
-LATE_CHILD=$(git -C "$TMP/late-child" rev-parse HEAD)
-newrepo "$TMP/late-parent"
-( cd "$TMP/late-parent" && echo p1 > p && git add p && git commit -qm p1 )
-LATE_PARENT_BASE=$(git -C "$TMP/late-parent" rev-parse HEAD)
-newrepo "$TMP/late-super"
-( cd "$TMP/late-super" && echo s1 > s && git add s && git commit -qm s1 \
-  && git -c protocol.file.allow=always submodule add -q "$TMP/late-parent" parent \
-  && git commit -qm s2 )
-LATE_SUPER=$(git -C "$TMP/late-super" rev-parse HEAD)
-( cd "$TMP/late-parent" && git -c protocol.file.allow=always \
-    submodule add -q "$TMP/late-child" nested/N && git commit -qm p2 )
-LATE_PARENT_NEW=$(git -C "$TMP/late-parent" rev-parse HEAD)
-git clone -q "$TMP/late-super" "$TMP/late-vs"
-( cd "$TMP/late-vs" && git -c protocol.file.allow=always \
-    submodule update -q --init --recursive )
-late_inventory="$TMP/late-baseline.inventory"
-late_ver() {
-  ( cd "$TMP/late-vs" && GIT_CEILING_DIRECTORIES="$TMP/late-vs/parent/nested" \
-    OSC_BASELINE_INVENTORY="$late_inventory" \
-    bash "$SCRIPT" "$@" 2>"$TMP/late.err" )
-}
-late_verify_out=$(late_ver verify "$LATE_SUPER"); late_verify_rc=$?
-judge "$([ "$late_verify_rc" -eq 0 ] && [ "$late_verify_out" = "verified $LATE_SUPER" ]; echo $?)" \
-  "record baseline inventory at verified checkout"
-late_setup_rc=0
-( cd "$TMP/late-vs" && GIT_ALLOW_PROTOCOL=file \
-    git submodule foreach git pull origin main --depth 9999 ) \
-  || late_setup_rc=$?
-judge "$([ "$late_setup_rc" -eq 0 ] && [ "$(git -C "$TMP/late-vs/parent" rev-parse HEAD)" = "$LATE_PARENT_NEW" ]; echo $?)" \
-  "canonical pull advances initialized parent to new gitlink commit"
-if [ -d "$TMP/late-vs/parent/nested/N" ]; then
-  rmdir "$TMP/late-vs/parent/nested/N"
-fi
-late_post_out="$TMP/late-post.out"
-late_post_rc=0
-late_ver post >"$late_post_out" || late_post_rc=$?
-late_new_ok=1
-if [ "$late_post_rc" -eq 0 ] \
-  && has_nul_record "$late_post_out" "PROVENANCE new-uninitialized-gitlink" \
-       "parent/nested/N" "$LATE_CHILD"; then
-  late_new_ok=0
-fi
-judge "$late_new_ok" "post accepts new uninitialized gitlink with NUL provenance"
+( cd "$TMP/subA" && git -c protocol.file.allow=always \
+    submodule add -q "$TMP/subB" libs/C && git commit -qm a4 )
+A4=$(git -C "$TMP/subA" rev-parse HEAD)
+setup_rc=0
+( cd "$TMP/vs" && GIT_ALLOW_PROTOCOL=file \
+    git submodule foreach git pull origin main --depth 9999 ) || setup_rc=$?
+judge "$([ "$setup_rc" -eq 0 ] && [ "$(git -C "$TMP/vs/libs/A" rev-parse HEAD)" = "$A4" ]; echo $?)" \
+  "canonical pull introduces a new nested gitlink"
+post_out="$TMP/new-gitlink.out"; post_rc=0
+ver post >"$post_out" || post_rc=$?
+new_ok=1
+[ "$post_rc" -eq 0 ] && has_nul_record "$post_out" \
+  "PROVENANCE new-uninitialized-gitlink" "libs/A/libs/C" "$B2" && new_ok=0
+judge "$new_ok" "post accepts new uninitialized gitlink with NUL provenance"
 
-late_deinit_rc=0
-git -C "$TMP/late-vs" submodule deinit -q -f -- parent || late_deinit_rc=$?
-late_deinit_post_rc=0
-late_ver post >"$TMP/late-deinit.out" 2>/dev/null || late_deinit_post_rc=$?
-judge "$([ "$late_deinit_rc" -eq 0 ] && [ "$late_deinit_post_rc" -ne 0 ]; echo $?)" \
+deinit_rc=0
+git -C "$TMP/vs" submodule deinit -q -f -- libs/A || deinit_rc=$?
+deinit_post_rc=0; ver post >/dev/null 2>&1 || deinit_post_rc=$?
+judge "$([ "$deinit_rc" -eq 0 ] && [ "$deinit_post_rc" -ne 0 ]; echo $?)" \
   "post rejects deinitialized baseline gitlink"
-
-git clone -q "$TMP/late-super" "$TMP/late-remove"
-( cd "$TMP/late-remove" && git -c protocol.file.allow=always \
-    submodule update -q --init --recursive )
-remove_inventory="$TMP/remove-baseline.inventory"
-remove_verify_rc=0
-( cd "$TMP/late-remove" && OSC_BASELINE_INVENTORY="$remove_inventory" \
-  bash "$SCRIPT" verify "$LATE_SUPER" >/dev/null ) || remove_verify_rc=$?
-git -C "$TMP/late-remove" config user.email c@c
-git -C "$TMP/late-remove" config user.name c
-git -C "$TMP/late-remove" rm -q -f parent
-git -C "$TMP/late-remove" commit -qm "remove baseline submodule"
-remove_post_rc=0
-( cd "$TMP/late-remove" && OSC_BASELINE_INVENTORY="$remove_inventory" \
-  bash "$SCRIPT" post >/dev/null ) || remove_post_rc=$?
-judge "$([ "$remove_verify_rc" -eq 0 ] && [ "$remove_post_rc" -ne 0 ]; echo $?)" \
-  "post rejects removed baseline gitlink"
+git -C "$TMP/vs" config user.email c@c
+git -C "$TMP/vs" config user.name c
+git -C "$TMP/vs" rm -q -f libs/A
+git -C "$TMP/vs" commit -qm "remove baseline submodule"
+remove_post_rc=0; ver post >/dev/null 2>&1 || remove_post_rc=$?
+judge "$([ "$remove_post_rc" -ne 0 ]; echo $?)" "post rejects removed baseline gitlink"
 
 ver verify notasha >/dev/null 2>&1; judge "$([ $? -ne 0 ]; echo $?)" "reject non-40-hex expected"
 ver verify >/dev/null 2>&1;        judge "$([ $? -ne 0 ]; echo $?)" "reject verify without argument"
