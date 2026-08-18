@@ -206,9 +206,10 @@ LATE_PARENT_NEW=$(git -C "$TMP/late-parent" rev-parse HEAD)
 git clone -q "$TMP/late-super" "$TMP/late-vs"
 ( cd "$TMP/late-vs" && git -c protocol.file.allow=always \
     submodule update -q --init --recursive )
-late_inventory="$TMP/late-vs/baseline.inventory"
+late_inventory="$TMP/late-baseline.inventory"
 late_ver() {
-  ( cd "$TMP/late-vs" && OSC_BASELINE_INVENTORY="$late_inventory" \
+  ( cd "$TMP/late-vs" && GIT_CEILING_DIRECTORIES="$TMP/late-vs/parent/nested" \
+    OSC_BASELINE_INVENTORY="$late_inventory" \
     bash "$SCRIPT" "$@" 2>"$TMP/late.err" )
 }
 late_verify_out=$(late_ver verify "$LATE_SUPER"); late_verify_rc=$?
@@ -244,10 +245,12 @@ judge "$([ "$late_deinit_rc" -eq 0 ] && [ "$late_deinit_post_rc" -ne 0 ]; echo $
 git clone -q "$TMP/late-super" "$TMP/late-remove"
 ( cd "$TMP/late-remove" && git -c protocol.file.allow=always \
     submodule update -q --init --recursive )
-remove_inventory="$TMP/late-remove/baseline.inventory"
+remove_inventory="$TMP/remove-baseline.inventory"
 remove_verify_rc=0
 ( cd "$TMP/late-remove" && OSC_BASELINE_INVENTORY="$remove_inventory" \
   bash "$SCRIPT" verify "$LATE_SUPER" >/dev/null ) || remove_verify_rc=$?
+git -C "$TMP/late-remove" config user.email c@c
+git -C "$TMP/late-remove" config user.name c
 git -C "$TMP/late-remove" rm -q -f parent
 git -C "$TMP/late-remove" commit -qm "remove baseline submodule"
 remove_post_rc=0
