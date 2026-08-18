@@ -58,6 +58,17 @@ res "$M1" >/dev/null 2>&1 && sh=1   # branch named $M1 must shadow raw SHA
 res "$M2" >/dev/null 2>&1 && sh=1   # tag named $M2 must shadow raw SHA
 judge "$sh" "reject 40-hex shadowed by named branch/tag"
 
+mkdir -p "$TMP/fail-git"
+git_real="$(command -v git)"
+printf '%s\n' '#!/bin/sh' \
+  'if [ "$1" = "ls-remote" ]; then exit 42; fi' \
+  "exec \"$git_real\" \"\$@\"" > "$TMP/fail-git/git"
+chmod +x "$TMP/fail-git/git"
+out=$(cd "$TMP/resolver" && PATH="$TMP/fail-git:$PATH" \
+  bash "$SCRIPT" resolve "$M3" 2>"$TMP/err"); rc=$?
+[ "$rc" -ne 0 ] && ! printf '%s\n' "$out" | grep -Eq '^[0-9a-f]{40}$'
+judge $? "fail closed when raw-SHA namespace lookup errors"
+
 expect_no "reject unknown ref"          nosuch
 expect_no "reject option-like long"     --upload-pack=/bin/touch
 expect_no "reject option-like short"    -x
