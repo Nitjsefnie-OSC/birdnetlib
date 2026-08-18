@@ -4,7 +4,8 @@
 # Proves: valid-ref success; invalid-ref, option-injection, ambiguous/DWIM
 # rejection; 40-hex branch/tag shadowing rejection; checkout-drift, dirty-tree
 # and recursive submodule drift/dirt rejection independent of target
-# .gitmodules ignore policy; post-setup acceptance/provenance; exactly one
+# .gitmodules ignore policy, including ignored filesystem mutations; post-setup
+# acceptance/provenance; exactly one
 # generic target_ref wrapper named osc-manual.yml. Local fixtures only.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -75,17 +76,20 @@ judge "$([ "$rc" -ne 0 ]; echo $?)" "reject bad subcommand"
 newrepo() { git init -q -b main "$1"; git -C "$1" config user.email c@c
   git -C "$1" config user.name c; }
 newrepo "$TMP/subB"
-( cd "$TMP/subB" && echo b1 > g && git add g && git commit -qm b1 )
+( cd "$TMP/subB" && echo b1 > g && printf 'ignored-b.dat\n' > .gitignore \
+  && git add g .gitignore && git commit -qm b1 )
 B1=$(git -C "$TMP/subB" rev-parse HEAD)
 ( cd "$TMP/subB" && echo b2 > g && git commit -qam b2 )
 B2=$(git -C "$TMP/subB" rev-parse HEAD)
 newrepo "$TMP/subA"
-( cd "$TMP/subA" && echo a1 > h && git add h && git commit -qm a1 \
+( cd "$TMP/subA" && echo a1 > h && printf 'ignored-a.dat\n' > .gitignore \
+  && git add h .gitignore && git commit -qm a1 \
   && git -c protocol.file.allow=always submodule add -q "$TMP/subB" libs/B \
   && git commit -qm a2 )
 A2=$(git -C "$TMP/subA" rev-parse HEAD)
 newrepo "$TMP/super"
-( cd "$TMP/super" && echo s1 > i && git add i && git commit -qm s1 \
+( cd "$TMP/super" && echo s1 > i && printf 'ignored-super.dat\n' > .gitignore \
+  && git add i .gitignore && git commit -qm s1 \
   && git -c protocol.file.allow=always submodule add -q "$TMP/subA" libs/A \
   && git config -f .gitmodules submodule.libs/A.ignore all \
   && git add .gitmodules && git commit -qm s2 )
@@ -125,6 +129,24 @@ ver verify "$SUP" >/dev/null 2>&1 && sg=1                # untracked dirt in sub
 rm -f "$TMP/vs/libs/A/u"
 git -C "$TMP/vs/libs/A" checkout -q "$A3"                # off-gitlink clean state for post
 judge "$sg" "submodule drift/dirt gate independent of ignore=all"
+
+ig=0
+printf 'ignored\n' > "$TMP/vs/ignored-super.dat"
+printf 'ignored\n' > "$TMP/vs/libs/A/ignored-a.dat"
+printf 'ignored\n' > "$TMP/vs/libs/A/libs/B/ignored-b.dat"
+super_ignored=$(git -C "$TMP/vs" status --porcelain --ignored --ignore-submodules=none)
+sub_a_ignored=$(git -C "$TMP/vs/libs/A" status --porcelain --ignored --ignore-submodules=none)
+sub_b_ignored=$(git -C "$TMP/vs/libs/A/libs/B" status --porcelain --ignored --ignore-submodules=none)
+printf '%s\n' "$super_ignored" | grep -Fqx '!! ignored-super.dat' || ig=1
+printf '%s\n' "$sub_a_ignored" | grep -Fqx '!! ignored-a.dat' || ig=1
+printf '%s\n' "$sub_b_ignored" | grep -Fqx '!! ignored-b.dat' || ig=1
+judge "$ig" "fixture exposes ignored dirt at every recursive depth"
+ig=0
+ver verify "$SUP" >/dev/null 2>&1 && ig=1
+ver post >/dev/null 2>&1 && ig=1
+judge "$ig" "reject ignored dirt at superproject and recursive submodule depth"
+rm -f "$TMP/vs/ignored-super.dat" "$TMP/vs/libs/A/ignored-a.dat" \
+  "$TMP/vs/libs/A/libs/B/ignored-b.dat"
 
 # --- post: canonical off-gitlink state, dirt rejection, provenance --------
 out=$(ver post); rc=$?
