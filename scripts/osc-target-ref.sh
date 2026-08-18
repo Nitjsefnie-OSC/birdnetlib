@@ -64,19 +64,24 @@ if [ "$cmd" = "resolve" ]; then
   exit 0
 fi
 
-each_sub() { # $1=repo dir $2=callback(records sha, path, abs dir); recursive
-  local repo="$1" callback="$2" entry metadata mode type sha path
+each_sub() { # $1=repo dir $2=callback(sha, full path, abs dir); recursive
+  local repo="$1" callback="$2" prefix="${3:-}" entry metadata mode type sha path full
   while IFS= read -r -d '' entry; do
     metadata="${entry%%$'\t'*}"
     path="${entry#*$'\t'}"
     read -r mode type sha <<< "$metadata"
     [ "$mode" = "160000" ] || continue
-    "$callback" "$sha" "$path" "$repo/$path"
-    each_sub "$repo/$path" "$callback"
+    full="${prefix:+$prefix/}$path"
+    "$callback" "$sha" "$full" "$repo/$path"
+    if [ -e "$repo/$path/.git" ] \
+      && git -C "$repo/$path" rev-parse HEAD >/dev/null 2>&1; then
+      each_sub "$repo/$path" "$callback" "$full"
+    fi
   done < <(git -C "$repo" ls-tree -r -z HEAD)
 }
 
-sub_head() { sub_actual=$(git -C "$3" rev-parse HEAD 2>/dev/null) \
+sub_head() { [ -e "$3/.git" ] || fail "submodule not checked out: $2"
+  sub_actual=$(git -C "$3" rev-parse HEAD 2>/dev/null) \
   || fail "submodule not checked out: $2"; }
 
 check_gitlink() { sub_head "$@"; [ "$sub_actual" = "$1" ] \
@@ -95,7 +100,51 @@ check_clean() {
   clean_status "$3" none "submodule: $2"
 }
 
-print_prov() { sub_head "$@"; printf 'PROVENANCE submodule %s %s\n' "${3#./}" "$sub_actual"; }
+inventory_path() {
+  if [ -n "${OSC_BASELINE_INVENTORY:-}" ]; then
+    printf '%s\n' "$OSC_BASELINE_INVENTORY"
+  else
+    git rev-parse --git-path osc-target-ref-baseline \
+      || fail "unable to locate baseline inventory"
+  fi
+}
+
+inventory_record() { printf '%s\0%s\0' "$2" "$1"; }
+save_inventory() {
+  local file="$1" tmp="${1}.tmp.$$"
+  mkdir -p "$(dirname "$file")" || fail "unable to create baseline inventory directory"
+  each_sub . inventory_record >"$tmp" || fail "unable to build baseline inventory"
+  mv -f "$tmp" "$file" || fail "unable to persist baseline inventory"
+}
+
+declare -A baseline_sha=() baseline_seen=()
+load_inventory() {
+  local file="$1" path sha
+  [ -f "$file" ] || fail "baseline inventory missing: $file"
+  while IFS= read -r -d '' path; do
+    IFS= read -r -d '' sha || fail "malformed baseline inventory: $file"
+    is_sha "$sha" || fail "malformed baseline gitlink SHA: $path"
+    baseline_sha["$path"]="$sha"; baseline_seen["$path"]=0
+  done <"$file"
+}
+
+post_sub() {
+  local sha="$1" path="$2" dir="$3" actual
+  if [ "${baseline_sha[$path]+x}" ]; then
+    baseline_seen["$path"]=1
+    sub_head "$sha" "$path" "$dir"
+    clean_status "$dir" all "submodule: $path"
+    printf 'PROVENANCE submodule %s %s\n' "$path" "$sub_actual"
+  elif [ -e "$dir/.git" ] \
+    && actual=$(git -C "$dir" rev-parse HEAD 2>/dev/null); then
+    [ "$actual" = "$sha" ] || fail "new submodule drift: $path recorded=$sha actual=$actual"
+    clean_status "$dir" all "new submodule: $path"
+    printf '\0PROVENANCE new-initialized-gitlink\0%s\0%s\0%s\0' \
+      "$path" "$sha" "$actual"
+  else
+    printf '\0PROVENANCE new-uninitialized-gitlink\0%s\0%s\0' "$path" "$sha"
+  fi
+}
 
 case "$cmd" in
   verify)
@@ -107,11 +156,16 @@ case "$cmd" in
     clean_status . none "tree after checkout"
     each_sub . check_gitlink
     each_sub . check_clean
+    save_inventory "$(inventory_path)"
     printf 'verified %s\n' "$actual"
     ;;
   post)
+    load_inventory "$(inventory_path)"
     clean_status . all "non-submodule tree after setup"
-    each_sub . check_clean
-    each_sub . print_prov
+    each_sub . post_sub
+    for path in "${!baseline_sha[@]}"; do
+      [ "${baseline_seen[$path]:-0}" -eq 1 ] \
+        || fail "baseline submodule missing: $path"
+    done
     ;;
 esac
