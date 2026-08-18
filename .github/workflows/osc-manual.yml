@@ -4,24 +4,70 @@ on:
   workflow_dispatch:
     inputs:
       target_ref:
+        description: "Exact branch, tag, or unshadowed 40-hex commit SHA to test"
         required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11"]
     steps:
-      - uses: actions/checkout@v3
+      - name: Check out wrapper tree
+        uses: actions/checkout@v3
         with:
-          ref: "${{ inputs.target_ref }}"
+          path: wrapper
+      - name: Stage trusted scripts and run wrapper contract
+        run: |
+          set -euo pipefail
+          cp "$GITHUB_WORKSPACE/wrapper/scripts/osc-target-ref.sh" \
+             "$GITHUB_WORKSPACE/wrapper/scripts/osc-target-ref-contract.sh" \
+             "$RUNNER_TEMP/"
+          "$RUNNER_TEMP/osc-target-ref-contract.sh" "$GITHUB_WORKSPACE/wrapper"
+      - name: Resolve target_ref
+        id: resolve
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/resolver"
+          git -C "$RUNNER_TEMP/resolver" init -q .
+          git -C "$RUNNER_TEMP/resolver" remote add origin "https://github.com/${{ github.repository }}.git"
+          cd "$RUNNER_TEMP/resolver"
+          resolved=$("$RUNNER_TEMP/osc-target-ref.sh" resolve "$TARGET_REF")
+          printf 'resolved=%s\n' "$resolved" >> "$GITHUB_OUTPUT"
+      - name: Check out resolved commit
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ steps.resolve.outputs.resolved }}
           submodules: "recursive"
+          clean: true
+      - name: Verify checkout identity and cleanliness
+        env:
+          RESOLVED: ${{ steps.resolve.outputs.resolved }}
+        run: |
+          "$RUNNER_TEMP/osc-target-ref.sh" verify "$RESOLVED"
+      - name: Provenance
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+          RESOLVED: ${{ steps.resolve.outputs.resolved }}
+        run: |
+          printf 'PROVENANCE repository=%s\n' "${{ github.repository }}"
+          printf 'PROVENANCE workflow_ref=%s\n' "${{ github.ref }}"
+          printf 'PROVENANCE target_ref=%s\n' "$TARGET_REF"
+          printf 'PROVENANCE resolved_sha=%s\n' "$RESOLVED"
+          printf 'PROVENANCE checked_out_head=%s\n' "$(git rev-parse HEAD)"
+          printf 'PROVENANCE python_version=%s\n' "${{ matrix.python-version }}"
       - name: submodules recursively
         run: git submodule foreach git pull origin main --depth 9999
+      - name: Post-setup verify and submodule provenance
+        run: |
+          "$RUNNER_TEMP/osc-target-ref.sh" post
       - name: Setup FFmpeg
         uses: FedericoCarboni/setup-ffmpeg@v2
       - name: Install libsndfile
@@ -35,8 +81,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install tensorflow librosa soundfile pytest mock resampy
           pip install .
-          # if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Test with pytest
         run: |
           git -C tests/BirdNET-Analyzer checkout 98945574c68102ccfac6c3504fcc63e64ed6f9e3
+          "$RUNNER_TEMP/osc-target-ref.sh" post
           pytest -m "not omit_during_ghactions" --maxfail=1

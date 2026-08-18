@@ -1,0 +1,26 @@
+name: osc-wrapper-contract
+
+on:
+  push:
+    branches: ["candidate/**", "probe/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Verify checkout identity and provenance
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          printf 'PROVENANCE repository=%s\n' "${{ github.repository }}"
+          printf 'PROVENANCE github_sha=%s\n' "${{ github.sha }}"
+          printf 'PROVENANCE checked_out_head=%s\n' "$(git rev-parse HEAD)"
+      - name: Syntax parse
+        run: bash -n scripts/osc-target-ref.sh scripts/osc-target-ref-contract.sh
+      - name: Run wrapper contract
+        run: bash scripts/osc-target-ref-contract.sh .
